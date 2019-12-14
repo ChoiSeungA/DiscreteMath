@@ -22,19 +22,12 @@ smoothing : 적당한 k 값 구하기
 
 
 int total=0;
-int neg_total=0;
-int nonneg_total=0;
+int neg_total;
+int nonneg_total;
 float sum=0;
 int count=0;
-int k=30;
+int k=100;
 
-struct Table {
-	char *key;
-	float neg;
-	float nonneg;
-};
-
-struct Table * wordtable;
 
 void strwrSub(char str[]) {
 	int i=0;
@@ -46,12 +39,6 @@ void strwrSub(char str[]) {
 	}
 }
 
-void total_counter (gpointer key, gpointer value, gpointer userdata) {
-	int *d = value;
-	if(d[0] != 30) nonneg_total++;
-	else if(d[1] != 30) neg_total++;
-	else if(d[0] != 30 && d[1] != 30)	total++;
-}
 
 void 
 print_counter (gpointer key, gpointer value, gpointer userdata) 
@@ -59,82 +46,45 @@ print_counter (gpointer key, gpointer value, gpointer userdata)
 	FILE *fp = fopen("model.csv", "a");
 	count++;
 	char * t = key ;
-	int * d = value; // k=30
+	float * d = value; 
 	float prob_neg, prob_nonneg;
-	prob_nonneg	= (float)(d[0]) / (float)(nonneg_total+60);
-	//double prob_nonneg1 = log10(prob_nonneg);
-	prob_neg = (float)(d[1]) / (float)(neg_total+60);
+	prob_nonneg	= (d[0]) / (nonneg_total+k);
+	double prob_nonneg1 = log10(prob_nonneg);
+	prob_neg = (d[1]) / (neg_total+2*k);
 	double prob_neg1;
-  //prob_neg1= log10(prob_neg);
+  prob_neg1= log10(prob_neg);
 	double result = log10(10.0);
   strwrSub(t);
+	d[2] = prob_nonneg;
+	d[3] = prob_neg;
 	if(d[0]<40 || d[1]<40)
-	printf("(%s, %d, %d)-%f %f\n", t, d[0],d[1], prob_nonneg, prob_neg) ;
-	if(((d[0] > 31 && d[1]>31)) && strlen(t)>2)
-		fprintf(fp, "%s - %f %f\n", t, prob_nonneg, prob_neg);
+	printf("(%s, %.0f, %.0f)-%f %f\n", t, d[0],d[1], prob_nonneg, prob_neg) ;
+
+	fprintf(fp, "%s %f %f  \n", t, d[2], d[3]);
 	fclose(fp);
 }
 
 
-void probability(GHashTable *counter, char str[]) {
-	struct sb_stemmer *stemmer;
-	stemmer = sb_stemmer_new("english", 0x0);
-	int check_alpha = 0;
-	char *line;
-	float non_guess = 1, neg_guess = 1;
-	printf("%s\n", str);
-	line = strtok(str, " \n\t");
-//	printf("%s\n", t);
-	while(line != NULL) {
-		printf("%s\n", line);
-		line = strtok(NULL, " \n\t");
-	}
-	for(line = strtok(str, " \n\t") ; line != 0x0 ; line = strtok(0x0, " \n\t")) {
-		int *d ;
-//		printf("%s\n", line);
-		for(int i=0 ; i<strlen(line) ; i++) {
-			if(!isalpha(line[i])) {
-				check_alpha=1;
-				break;
-			}
-		}
-		if(check_alpha==0) {
-			const char* s;
-			s = sb_stemmer_stem( stemmer, line, strlen(line) );
-			line = (char*) s;
-			printf("%s ", line);
-			d = g_hash_table_lookup(counter, line) ;
-			if(d == NULL) {
-				non_guess *= 1;
-				neg_guess *= 1;
-				printf("/");
-			}
-			else {
-				non_guess *= ((float)d[0]/(float)nonneg_total);
-				printf("%f %f \n", (float)d[0]/(float)nonneg_total, (float)d[1]/(float)neg_total);
-				neg_guess *= ((float)d[1]/(float)neg_total);
-			}
-			
-		//	printf("5\n");
-		}
-		printf("%f %f\n", non_guess, neg_guess);
-	}
-	//	printf("%d %d\n", nonneg_total, neg_total);
-//	printf("guess non: %f, guess neg: %f", non_guess, neg_guess);
+void total_counter (gpointer key, gpointer value, gpointer userdata) {
+	float *d = value;
+	if(d[0] > k/2) nonneg_total++;
+	if(d[1] > k) neg_total++;
 }
-
 
 int 
 main () 
 {
 	FILE * f = fopen("../data/train.non-negative.csv", "r") ;
 	FILE * f_neg = fopen("../data/train.negative.csv", "r") ;
-//	FILE *test = fopen("../data/test.non-negative.csv");
+	FILE *test = fopen("../data/test.negative.csv", "r");
+	FILE *test_nonneg = fopen("../data/test.non-negative.csv", "r");
+	FILE *stop = fopen("stop.txt", "r");
 	neg_total=0;
 	nonneg_total=0;
 
+	int empty = 0, empty_non = 0, positive=0, negative=0, positive_non=0, negative_non=0;
 	int i;
-	int *d;
+	float *d;
 	struct sb_stemmer *stemmer;
 	stemmer = sb_stemmer_new("english", 0x0);
 
@@ -145,17 +95,20 @@ main ()
 	size_t n = 0 ;
 	int skip_count=0;
 
+
+//non-negative data
 	while (getline(&line, &n, f) >= 0) {
 		int check_alpha=0;
 		char * t ;
 		char * _line = line ;
 
 		for (t = strtok(line, " \n\t") ; t != 0x0 ; t = strtok(0x0, " \n\t")) {
-				if(!isalpha(t[i])) {
-					check_alpha=1;
-					skip_count++;
-					break;
-				}
+			for(int i=0 ; i<strlen(t) ; i++ ){
+					if(!isalpha(t[i])){
+						check_alpha = 1;
+						break;					
+					}	
+			}
 			if(check_alpha==0){	
 				 // nonneg_total++;			
 			//////////stemmer하는 과정//////////
@@ -166,8 +119,8 @@ main ()
 				d = g_hash_table_lookup(counter, t) ;
 				if (d == NULL) {
 					d = malloc(sizeof(int)*2) ;
-					d[0] = k+1 ; // k=30
-					d[1] = k ;
+					d[0] = (k/2)+1 ; // k=30
+					d[1] = (k);
 					g_hash_table_insert(counter, strdup(t), d) ;
 				}
 				else {
@@ -179,15 +132,22 @@ main ()
 		line = 0x0 ;
 	}
 
+//negative_data
+
 	while(getline(&line, &n, f_neg)>= 0) {
 		int check_alpha = 0;
 		char *t;
 		char * _line = line;
 		
 		for(t = strtok(line, " \n\t") ; t!=0x0 ; t=strtok(0x0, " \n\t")) {
-			int *d;	
+			float *d;	
 			for(int i=0 ; i<strlen(t) ; i++) {
 				if(!isalpha(t[i])) {
+					if(i==strlen(t) -1 && ((t[i]=='!') || (t[i] == ',') || (t[i] == '?') || (t[i] == '.'))) {
+						check_alpha = 0;
+						t[i] = '\0';
+						break;
+					}				
 					check_alpha = 1;
 					break;
 				}
@@ -201,7 +161,7 @@ main ()
 
 				if(d == NULL) {
 					d = malloc(sizeof(int)*2);
-					d[0]=k;
+					d[0]=k/2;
 					d[1]=k+1;
 					g_hash_table_insert(counter, strdup(t), d);
 				}
@@ -217,17 +177,160 @@ main ()
 	 단어가 없으면null & 확률로 저장
 
 	 */
-	nonneg_total=0;
-	neg_total=0;
-	total=0;
+
+	//////////////////////////////////////
+  char *lin = 0x0;
+	size_t na = 0;
+
+	while(getline(&lin, &na, stop) >=0 ) {
+		lin[strlen(lin)-1] = '\0';
+		if(g_hash_table_contains(counter, lin) >= 0) {
+			g_hash_table_remove(counter, lin);
+		}
+	}
+
+	//////////////////////////////////
+	char *test_line = 0x0;
+
 	g_hash_table_foreach(counter, total_counter, 0x0);
 	g_hash_table_foreach(counter, print_counter,0x0) ;
-	printf("worst: %d\n", *((int *) g_hash_table_lookup(counter, "with"))) ;
-	printf("hash table size: %d", g_hash_table_size(counter));
-	printf("neg_total: %d, nonneg: %d", neg_total, nonneg_total);
-//	char str[256] = "Flight 2646, Four hours in the plane on the ground at BWI";
-//	probability(counter, str);
 
+
+	printf("\n\n\n///////////////////////////negative data set//////////////////////\n\n\n");
+	while(getline(&test_line, &n, test) >= 0) {
+	//라인을 한 줄씩 받음
+		char *t;
+		char* _test = test_line;
+		int check_alpha=0;
+		float neg_prob=0, nonneg_prob=0;
+		printf("%s", test_line);
+		for(t = strtok(test_line, " \n\t") ; t!=0x0 ; t=strtok(0x0, " \n\t")) {
+			check_alpha = 0;
+			for(int i=0 ; i<strlen(t) ; i++)
+			{
+				if(!isalpha(t[i])) {
+					if(i==strlen(t) -1 && ((t[i]=='!') || (t[i] == ',') || (t[i] == '?') || (t[i] == '.'))) {
+						check_alpha = 0;
+						t[i] = '\0';
+						break;
+					}				
+					check_alpha=1;
+				}	
+			}
+
+			if(check_alpha == 0) {
+				strwrSub(t);
+
+				const char *s;
+				s = sb_stemmer_stem(stemmer, t, strlen(t));
+				t = (char*) s;
+
+				if(g_hash_table_contains(counter, t)) {
+					float* temp = g_hash_table_lookup(counter, t);
+				//	printf("%s:  %.3f %.3f, %.0f, %.0f\n",t,  temp[2], temp[3], temp[0], temp[1]); 
+					if(temp[2] != 0)	nonneg_prob+=log10(temp[2]);
+					if(temp[2] == 0) nonneg_prob += 0;
+					if(temp[3] != 0) neg_prob += log10(temp[3]);
+					if(temp[3] == 0) neg_prob += 0;
+				}
+			}
+		}
+		double result_nonneg = pow(10, nonneg_prob) / (pow(10, nonneg_prob) + pow(10, neg_prob)); // message가 nonneg문장일 확률
+		double result_neg = pow(10, neg_prob) / (pow(10, neg_prob) + pow(10, nonneg_prob)); // message가 nonneg문장일 확률
+		printf("nonneg: %f, neg: %f  \n",result_nonneg, result_neg);
+		if(result_neg > 0.65)	{
+						negative++;
+						printf("result: negative\n\n");
+		}
+		else if( result_nonneg ==  result_neg ) {
+						empty++;
+						printf("without empty case\n\n");
+		}
+		else	{
+						positive++;
+						printf("result: nonnegative\n\n");
+		}
+	}
+	
+	float final_negative_neg = negative / (float)(100-empty);
+	float final_nonneg_neg = positive / (float)(100-empty);
+
+//	printf("negative : %f ,  positive: %f, empty: %d\n", final_negative, final_nonneg, empty);
+//	printf("neg count: %d, nonneg count: %d\n", negative, positive);
+
+	printf("\n\n\n//////////////nonneg data set///////////////////\n\n\n");
+
+	while(getline(&test_line, &n, test_nonneg) >= 0) {
+	//라인을 한 줄씩 받음
+		char *t;
+		char* _test = test_line;
+		int check_alpha=0;
+		float neg_prob=0, nonneg_prob=0;
+		printf("%s", test_line);
+		for(t = strtok(test_line, " \n\t") ; t!=0x0 ; t=strtok(0x0, " \n\t")) {
+			check_alpha = 0;
+			for(int i=0 ; i<strlen(t) ; i++)
+			{
+				if(!isalpha(t[i])) {
+					if(i==strlen(t) -1 && ((t[i]=='!') || (t[i] == ',') || (t[i] == '?') || (t[i] == '.'))) {
+						check_alpha = 0;
+						t[i] = '\0';
+						break;
+					}				
+					check_alpha=1;
+				}	
+			}
+
+			if(check_alpha == 0) {
+				strwrSub(t);
+
+				const char *s;
+				s = sb_stemmer_stem(stemmer, t, strlen(t));
+				t = (char*) s;
+
+				if(g_hash_table_contains(counter, t)) {
+					float* temp = g_hash_table_lookup(counter, t);
+				//	printf("%s:  %.3f %.3f, %.0f, %.0f\n",t,  temp[2], temp[3], temp[0], temp[1]); 
+					if(temp[2] != 0)	nonneg_prob+=log10(temp[2]);
+					if(temp[2] == 0) nonneg_prob += 0;
+					if(temp[3] != 0) neg_prob += log10(temp[3]);
+					if(temp[3] == 0) neg_prob += 0;
+				}
+			}
+		}
+		double result_nonneg = pow(10, nonneg_prob) / (pow(10, nonneg_prob) + pow(10, neg_prob)); // message가 nonneg문장일 확률
+		double result_neg = pow(10, neg_prob) / (pow(10, neg_prob) + pow(10, nonneg_prob)); // message가 nonneg문장일 확률
+		printf("nonneg: %f, neg: %f  \n",result_nonneg, result_neg);
+		if(result_neg > 0.65)	{
+						negative_non++;
+						printf("result: negative\n\n");
+		}
+		else if( result_nonneg ==  result_neg ) {
+						empty_non++;
+						printf("without empty case\n\n");
+		}
+		else	{
+						positive_non++;
+						printf("result: nonnegative\n\n");
+		}
+	}
+	
+	float final_negative_nonneg = negative_non / (float)(100-empty_non);
+	float final_nonneg_nonneg = positive_non / (float)(100-empty_non);
+	
+	printf("------------negative test data set result------------\n");
+	printf("negative : %f ,  positive: %f, empty: %d\n\n\n", final_negative_neg, final_nonneg_neg, empty);
+	
+	
+	printf("------------nonnegative test data set result------------\n");
+	printf("negative : %f ,  positive: %f, empty: %d\n\n\n", final_negative_nonneg, final_nonneg_nonneg, empty_non);
+
+
+//////////////////////////////////
 	fclose(f) ;
 	fclose(f_neg);
+	fclose(test);
+	fclose(stop);
+	fclose(test_nonneg);
+
 }
